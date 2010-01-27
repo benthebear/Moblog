@@ -1,0 +1,337 @@
+<?php 
+/**
+ * @author Benjamin Birkenhake <benjamin@birkenhake.org>
+ * 
+ */
+
+// Include my simple Email Class
+include_once("email.class.php");
+
+
+
+/**
+ * Implementation of hook_menu
+ *
+ * @return array $items
+ */
+function moblog_menu() {
+	$items['admin/settings/moblog'] = array(
+	'title' => t('Moblog settings'),
+	'description' =>  t("Setup Email Accounts for Moblog"),
+	'page callback' => 'drupal_get_form',
+	'page arguments' => array('moblog_admin_settings'),
+	'access arguments' => array('administer moblog'),
+	'menu_name' => 'moblog',
+	);
+	return $items;
+}
+
+
+/**
+ * Implementation of hook_node_info
+ *
+ * @return array
+ */
+function moblog_node_info(){
+	return array(
+	'moblog' => array(
+	'name' => t('Moblog'),
+	'module' => 'moblog',
+	'description' => t("A Moblog is Post that is generated from an email."),
+	'locked' => FALSE,
+	)
+	);
+
+}
+
+function moblog_perm() {
+	return array(
+	'administer moblog',
+	'create moblog',
+	'access moblog',
+	'edit any moblog',
+	'edit own moblog',
+	'delete any moblog',
+	'delete own moblog',);
+}
+
+function moblog_admin_settings(){
+	$form["moblog"] = array();
+
+	$form['moblog']['moblog_server'] = array('#type' => 'textfield',
+	'#title' => t('Mail Server'),
+	'#default_value' => variable_get('moblog_server', "pop3.example.com"),
+	'#size' => 30,
+	'#maxlength' => 512,
+	'#description' => t('Enter a Servername like "pop3.example.com"'),
+	);
+	$form['moblog']['moblog_user'] = array('#type' => 'textfield',
+	'#title' => t('Mail Account User'),
+	'#default_value' => variable_get('moblog_user', "user"),
+	'#size' => 30,
+	'#maxlength' => 512,
+	'#description' => t('Enter a Mail Account User like "myUserName"'),
+	);
+	$form['moblog']['moblog_password'] = array('#type' => 'textfield',
+	'#title' => t('Mail Account Password'),
+	'#default_value' => variable_get('moblog_password', ""),
+	'#size' => 30,
+	'#maxlength' => 512,
+	'#description' => t('Enter a Password like "toosmall1234"'),
+	);
+	$form['moblog']['moblog_port'] = array('#type' => 'textfield',
+	'#title' => t('Mail Server Port'),
+	'#default_value' => variable_get('moblog_port', 110),
+	'#size' => 30,
+	'#maxlength' => 512,
+	'#description' => t('Enter a Servername like 110'),
+	);
+	$form['moblog']['moblog_directory'] = array('#type' => 'textfield',
+	'#title' => t('Moblog directory'),
+	'#default_value' => variable_get('moblog_directory', "files/"),
+	'#size' => 30,
+	'#maxlength' => 512,
+	'#description' => t('Enter a directory, where the images should be stored to.'),
+	);
+
+	return system_settings_form($form);
+}
+
+
+function moblog_block($op = 'list', $delta = 0, $edit = array()){
+	if ($op == 'list') {
+		$blocks[0]['info'] = t('Recent Moblogs');
+		return $blocks;
+	}
+	else if ($op == 'view') {
+		drupal_add_css(drupal_get_path('module', 'moblog') .'/moblog.css');
+		$output = moblog_recent_bookmarks();
+		if($output){
+			$block['subject'] = t('Recent Moblogs');
+			$block['content'] .= $output;
+		}else{
+			$output = NULL;
+		}
+		return $block;
+	}elseif ($op == 'configure' && $delta == 0) {    
+    $form['moblog_block_latest'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Latest Moblog Photos to show'),
+      '#default_value' => variable_get('moblog_block_latest', 4),
+      '#maxlength' => 3,
+      '#description' => t('The number of Moblog Photos to show in this block.'),
+    );
+    return $form;
+  }
+  elseif ($op == 'save' && $delta == 0) {  	  
+    variable_set('moblog_block_latest', $edit['moblog_block_latest']);
+    return;
+  }
+
+}
+
+function moblog_recent_bookmarks(){
+	$output = "";
+	$result = db_query("SELECT n.nid url FROM {node} AS n WHERE  n.type='moblog' AND n.status='1' ORDER BY n.created DESC LIMIT %d", variable_get('moblog_block_latest', 4));
+	
+	$items = array();
+	while($item = db_fetch_array($result)){
+		$node = node_load($item['url']);
+		$items[] = $node;
+	}
+	//print_r($items);
+	$output = theme("recent_moblog_block", $items);
+	//theme_item_list()
+
+	return $output;
+}
+
+
+
+function moblog_nodeapi($node, $op, $arg = 0){
+	if($node->type=="moblog"){
+		switch ($op) {
+			case "rss item":				
+					$node->body = eregi_replace("<img ", "<img width='400px' style='width:400px;' ", $node->body);			
+		}
+	}else{
+		return array();
+	}
+
+}
+
+/**
+ * Implementation of hook_form().
+ *
+ * Now it's time to describe the form for collecting the information
+ * specific to this node type. This hook requires us to return an array with
+ * a sub array containing information for each element in the form.
+ */
+function moblog_form(&$node) {
+	// The site admin can decide if this node type has a title and body, and how
+	// the fields should be labeled. We need to load these settings so we can
+	// build the node form correctly.
+	$type = node_get_types('type', $node);
+
+	if ($type->has_title) {
+		$form['title'] = array(
+		'#type' => 'textfield',
+		'#title' => check_plain($type->title_label),
+		'#required' => TRUE,
+		'#default_value' => $node->title,
+		'#weight' => -5
+		);
+	}
+
+	if ($type->has_body) {
+		// In Drupal 6, we can use node_body_field() to get the body and filter
+		// elements. This replaces the old textarea + filter_form() method of
+		// setting this up. It will also ensure the teaser splitter gets set up
+		// properly.
+		$form['body_field'] = node_body_field($node, $type->body_label, $type->min_word_count);
+	}
+
+
+
+	return $form;
+}
+
+function moblog_view($node, $teaser = FALSE, $page = FALSE){
+	drupal_add_css(drupal_get_path('module', 'moblog') .'/moblog.css');
+	if($teaser){
+		if($node->content["body"]["#value"] == "" and $node->teaser!=""){
+			$node->content["body"]["#value"] = $node->teaser;
+		}elseif($node->content["body"]["#value"] == "" and $node->teaser==""){
+			$node->content["body"]["#value"] = substr(nl2br(strip_tags($node->body, "<br><img>")), 0, variable_get('teaser_length', 600));
+		}
+	}
+	return $node;
+}
+
+function moblog_cron(){
+	// Creat new Instance of my very simple Email Class
+	$email = new email(
+	variable_get("moblog_server", "pop3.example.com"),
+	variable_get("moblog_port", "110"),
+	variable_get("moblog_user", "user"),
+	variable_get("moblog_password", "toosmall1234"),
+	variable_get("moblog_directory", "files/"));
+
+	// Get all Mails
+	$email->get_all_mail();
+	// If there are any Mails, make nodes of them
+	if(is_array($email->mails)){
+		foreach ($email->mails as $mail) {
+			$node = moblog_create_node($mail);
+			moblog_makemynode($node);
+		}
+		$email->delete_all_mail();
+		watchdog("moblog", "Added ".count($email->mails)." Moblog Posts from Mails");
+	}else {
+		watchdog("moblog", "No Moblog Posts from Mails");
+	}
+
+
+
+}
+
+
+/**
+ * Create a Moblog Node Array for further from an Mail Array
+ *
+ * @param array $mail
+ * @return array $node
+ */
+function moblog_create_node($mail = array()) {
+
+	$node = array();
+	$node['type'] = 'moblog';
+	// define the default node
+	$node["uid"] = "1";
+	$node['title'] = "".$mail["subject"]."";
+
+	// Create the body
+	$body = ""; //.$mail["text"]."";
+	$pic = 2;
+	while ($mail["image"][$pic]["data"]!=""){
+		$body .=  "<img src='".url(variable_get("moblog_directory", "files/").$mail["image"][$pic]["name"], array("absolute"=>"true"))."' alt='".trim(stripslashes(strip_tags(ereg_replace("'", "", $mail["subject"]))))."' />\n";
+		//$body .=  date("d. m. Y  H:i:s",$mail["date"]["timestamp"]);
+		$pic++;
+	}
+
+
+	$node['body'] = $body;
+	// Creating Times
+	$date = $mail["date"]["timestamp"];
+	$node['created'] = $date;
+	$node['changed'] = $date;
+	$node['timestamp'] = $date;
+	$node['format'] = 2;
+	$type = node_get_types("type", $node);
+	//print_r($type);
+	$options = variable_get('node_options_'. $type->type, array('status', 'promote'));
+	//print_r($options);
+	$node['comment'] = variable_get("comment_moblog", 2);
+	if(in_array("promote", $options)){
+		$node['promote'] = 1;
+	}else {
+		$node['promote'] = 0;
+	}
+	if(in_array("status", $options)){
+		$node['status'] = 1;
+	}else {
+		$node['status'] = 0;
+	}
+	//print_r($node);
+	//$node['path'] = date("Y/m/d/", $date).$xml->post_name;
+
+	return $node;
+
+}
+
+/**
+ * Actually create the Moblog Node from a Node Array
+ *
+ * @param array $node
+ * @return object $node
+ */
+function moblog_makemynode($node){
+	$date = $node["created"];
+	node_submit(&$node);
+	$node->uid = "1";
+	$node->created = $date;
+	$node->changed = $date;
+	$node->timestamp = $date;
+	node_save(&$node);
+	return $node;
+}
+
+// ##########  Theming beyond here
+
+//drupal_rebuild_theme_registry();
+
+function moblog_theme(){
+	return array(
+	'recent_moblog_block' => array(
+	'arguments' => array('items' => array()),
+	),
+
+	);
+}
+
+function theme_recent_moblog_block($items){
+	$content = "<ul>";
+	foreach ($items as $item){
+		$link = l("xxx", "node/".$item->nid, array("absolute" => true));
+		
+		$frags = explode("xxx", $link);
+		$teaser = "<li><h3>".$frags[0].strip_tags($item->body, "<img>").$frags[1]."<span>".$item->title."</span></h3></li>";
+    $content .= $teaser; 
+		
+		
+		
+	}
+	$content .= "</ul>";
+	$output = $content;
+	return $output;
+}

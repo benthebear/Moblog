@@ -1,0 +1,32 @@
+#block-moblog-0{
+	height:250px;
+	width:850px;	
+}
+
+
+#block-moblog-0 ul {
+	margin:0px;
+	padding:0px;
+	margin-left:20px;
+}
+
+#block-moblog-0 li {
+	height:161px;
+	width:161px;
+	overflow:hidden;
+	margin-bottom:2em;
+	
+}
+
+#block-moblog-0 li h3{
+	display:inline
+}
+
+#block-moblog-0 li img{
+	max-width:250px;
+}
+
+#block-moblog-0 li span{
+	display:none;
+}
+

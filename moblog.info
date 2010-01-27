@@ -1,0 +1,9 @@
+; $Id:  $
+name = Moblog
+description = A Module for creating Nodes from Mails
+package = Other
+version = VERSION
+core = 6.x
+
+
+
